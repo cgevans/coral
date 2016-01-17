@@ -78,8 +78,10 @@ class Vienna(object):
         dotbrackets = []
 
         def run_rnafold(seq, constraint=''):
-            arguments = ['RNAfold', '-T', str(temp), '-noPS', '-C']
+            arguments = ['RNAfold', '-T', str(temp), '--noPS', '-C']
 
+            import pdb
+            pdb.set_trace()
             process = Popen(arguments, stdin=PIPE,
                             stdout=PIPE, stderr=STDOUT)
             rnafold_input = '\n'.join([seq, constraint])
