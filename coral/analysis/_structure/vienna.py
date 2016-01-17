@@ -4,11 +4,12 @@ from subprocess import Popen, PIPE, STDOUT
 from tempfile import mkdtemp
 from os.path import isdir
 from shutil import rmtree
+from coral.analysis.utils import sequence_type
 
 
 class Vienna(object):
     '''Run Vienna RNA functions on a sequence.'''
-    def __init__(self, seqs, dotbrackets=None, constraint_structures=None):
+    def __init__(self, seq_list, dotbrackets=None, constraint_structures=None):
         '''
         :param seq: DNA or RNA sequences to evaluate.
         :type seq: list of coral.DNA, coral.RNA, or str
@@ -18,7 +19,22 @@ class Vienna(object):
         :returns: coral.analysis.Vienna instance.
 
         '''
-        self._seqs = [str(seq) for seq in seqs]
+        
+        # If input isn't list, make it one
+        if not isinstance(seq_list, list):
+            self._seq_list = [seq_list]
+        else:
+            self._seq_list = seq_list
+
+        # Figure out material based on input and ensure it's consistent
+        self._material = sequence_type(self._seq_list[0])
+        if not all([sequence_type(seq) == self._material for seq in
+                   self._seq_list]):
+            raise ValueError('Sequence inputs were of mixed types.')
+
+        # Convert seq object(s) to string(s)
+        self._seq_list = [str(seq) for seq in self._seq_list]
+
         self._tempdir = ''
         if dotbrackets is None:
             self.dotbrackets = []
@@ -54,10 +70,10 @@ class Vienna(object):
 
         mfes = []
         if index is None:
-            for seq, dotbracket in zip(self._seqs, self.dotbrackets):
+            for seq, dotbracket in zip(self._seq_list, self.dotbrackets):
                 mfes.append(run_rnaeval(seq, dotbracket))
         else:
-            for seq, dotbracket in zip(self._seqs[index],
+            for seq, dotbracket in zip(self._seq_list[index],
                                        self.dotbrackets[index]):
                 mfes.append(run_rnaeval(seq, dotbracket))
         return mfes
@@ -80,8 +96,6 @@ class Vienna(object):
         def run_rnafold(seq, constraint=''):
             arguments = ['RNAfold', '-T', str(temp), '--noPS', '-C']
 
-            import pdb
-            pdb.set_trace()
             process = Popen(arguments, stdin=PIPE,
                             stdout=PIPE, stderr=STDOUT)
             rnafold_input = '\n'.join([seq, constraint])
@@ -94,24 +108,24 @@ class Vienna(object):
 
         if use_constraint_structures:
             if index is None:
-                for seq, const in zip(self._seqs, self.constraint_structures):
+                for seq, const in zip(self._seq_list, self.constraint_structures):
                     mfe, dotbracket = run_rnafold(seq, constraint=const)
                     mfes.append(float(mfe))
                     dotbrackets.append(dotbracket)
             else:
                 const = self.sequence_constraints[index]
-                mfe, dotbracket = run_rnafold(self._seqs[index],
+                mfe, dotbracket = run_rnafold(self._seq_list[index],
                                               constraint=const)
                 mfes.append(float(mfe))
                 dotbrackets.append(dotbracket)
         else:
             if index is None:
-                for seq in self._seqs:
+                for seq in self._seq_list:
                     mfe, dotbracket = run_rnafold(seq)
                     mfes.append(float(mfe))
                     dotbrackets.append(dotbracket)
             else:
-                mfe, dotbracket = run_rnafold(self._seqs[index])
+                mfe, dotbracket = run_rnafold(self._seq_list[index])
                 mfes.append(float(mfe))
                 dotbrackets.append(dotbracket)
 
@@ -154,11 +168,11 @@ class Vienna(object):
         self._check_tempdir()
         unbounds = []
         if index is None:
-            for seq in self._seqs:
+            for seq in self._seq_list:
                 unbound = run_rnafold(seq)
                 unbounds.append(unbound)
         else:
-            for seq in self._seqs[index]:
+            for seq in self._seq_list[index]:
                 unbound = run_rnafold(seq)
                 unbounds.append(unbound)
 
@@ -185,9 +199,9 @@ class Vienna(object):
         '''
         # TODO: refactor
         if indices is None:
-            tempseqs = self._seqs
+            tempseqs = self._seq_list
         else:
-            tempseqs = [self._seqs[indices[0]], self._seqs[indices[1]]]
+            tempseqs = [self._seq_list[indices[0]], self._seq_list[indices[1]]]
         if simtype == 'cofold':
             process = Popen(['RNAcofold', '-T', str(temp)], stdin=PIPE,
                             stdout=PIPE, stderr=STDOUT, cwd=self._tempdir)
