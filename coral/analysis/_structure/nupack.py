@@ -43,7 +43,7 @@ class Nupack(object):
         self._nupack_home = nupack_home
 
         # If input isn't list, make it one
-        if type(seq_list) != list:
+        if not isinstance(seq_list, list):
             self._seq_list = [seq_list]
         else:
             self._seq_list = seq_list
