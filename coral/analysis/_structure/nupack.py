@@ -12,15 +12,29 @@ from coral.analysis.utils import sequence_type
 
 class Nupack(object):
     '''Run NUPACK functions on sequences.'''
-    def __init__(self, seq_list, temp=50, nupack_home=None, rna1999=False):
+    def __init__(self, seq_list, temp=37, parameterset=None,
+                 dangles='some', adjust_energies=True,
+                 nupack_home=None):
         '''
         :param seq_list: Input sequence(s).
         :type seq_list: coral.DNA, coral.RNA, or list of
                         either.
-        :param rna1999: Use RNA 1999 settings.
-        :type rna1999: bool
         :param temp: Temperature in C.
         :type temp: float
+        :param parameterset: Parameter set for nupack to use. If None, let
+                             nupack choose. Other options are 'rna1995',
+                             'rna1999', or 'dna1998'.
+        :type parameterset: str
+        :param dangles: Nupack dangle handling. Default is 'some', other 
+                        options are 'none' or 'all'. See Nupack documentation
+                        for more information.
+        :type dangles: str
+        :param adjust_energies: Set whether energies should be adjusted to
+                                standard (molarity-based) energies or left
+                                as Nupack-style (mole-fraction based) energies.
+                                Defaults to True, so that values are consistent
+                                with other analysis classes.
+        :type adjust_energies: bool
         :param nupack_home: NUPACK home dir. The script attempts to find the
                             NUPACKHOME environment variable if this isn't set.
         :type nupack_home: str
@@ -29,7 +43,6 @@ class Nupack(object):
                  and nupack_home is undefined.
                  ValueError if sequences are not all the same type (e.g. don't
                  mix RNA and DNA).
-                 Exception if using rna1999 with a Tm other than 37C.
 
         '''
         # Set up nupack environment variable
@@ -57,14 +70,12 @@ class Nupack(object):
         # Convert seq object(s) to string(s)
         self._seq_list = [str(seq) for seq in self._seq_list]
 
-        # Shared temperature input
+        # Shared parameters FIXME sanity check
         self._temp = temp
-
-        # Handle rna1999 setting
-        if self._material == 'rna' and rna1999:
-            self._material = 'rna1999'
-            if self._temp != 37:
-                raise Exception('To use rna1999 settings, temp must be 37.')
+        self._dangles = dangles
+        self._adjust_energies = adjust_energies
+        if parameterset:
+            self._material = parameterset
 
         # Create temp dir
         self._tempdir = mkdtemp()
@@ -190,31 +201,57 @@ class Nupack(object):
                 'concentrations': concentrations,
                 'energy': energies}
 
-    def mfe(self, index):
-        '''Calculate the minimum free energy of a single polymer.
+    def mfe(self, indexes=None, return_structure=False):
+        '''Calculate the minimum free energy of a single strand, or multiple
+        strands.
 
-        :param index: Index of strand to analyze.
-        :type index: int
+        :param index: Index of strand to analyze. FIXME
+        :type indexes: None, int, or list of ints.
         :returns: Minimum Free Energy (mfe).
         :rtype: float
 
         '''
         self._temp_dir()
 
+        # Python is zero-indexed, while Nupack is one-indexed.
+        if isinstance(indexes, int):
+            indexes = [indexes]
+        elif not indexes:
+            indexes = range(0,len(self._seq_list))
+
         # Prepare input file
         with open(self._tempdir + '/nupack.in', 'w') as input_handle:
-            input_handle.write(self._seq_list[index])
+            n_seqs = len(set(indexes))
+            seqlist_indexes = sorted(set(indexes))
+            ordering = [ seqlist_indexes.index(i)+1 for i in indexes ]
+            input_handle.write( str(n_seqs) + '\n' )
+            input_handle.write( '\n'.join( self._seq_list[index] for \
+                index in sorted(set(indexes))) + '\n'  )
+            input_handle.write( ' '.join(str(i) for i in ordering) )
+            input_handle.write( '\n' )
 
-        args = ['-T', str(self._temp), '-material', self._material]
+        args = ['-T', str(self._temp), '-material', self._material,
+                '-dangles', self._dangles, '-multi' ]
+
         self._run_cmd('mfe', args)
         # Parse the output of 'mfe'
 
+        structs = []
         with open('{}/nupack.mfe'.format(self._tempdir), 'r+') as output:
-            mfe = float(output.readlines()[14].strip())
+            lines = output.readlines()
+
+        for i,l in enumerate(lines):
+            if l[0] == '.' or l[0] == '(':
+              s = l.strip()
+              e = float(lines[i-1].strip())
+              structs.append((s,e))
 
         self._close()
 
-        return mfe
+        if return_structure:
+            return structs
+        else:
+            return structs[0][1]
 
     def pairs(self, index):
         '''Calculate per-pair probability of being unbound for a single
